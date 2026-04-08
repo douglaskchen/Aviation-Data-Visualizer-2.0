@@ -26,10 +26,13 @@ def list_aircraft_in_box(
         supabase
         .table("aircraft_states")
         .select("*")
+        .not_.is_("latitude", "null")
+        .not_.is_("longitude", "null")
         .gte("latitude", min_lat)
         .lte("latitude", max_lat)
         .gte("longitude", min_lon)
         .lte("longitude", max_lon)
+        .order("updated_at", desc=True)
         .limit(limit)
         .execute()
     )
