@@ -1,5 +1,5 @@
 // const API_BASE_URL = "http://127.0.0.1:8000";
-const API_BASE_URL = "https://douglaskchen.github.io/Aviation-Data-Visualizer-2.0/"
+const API_BASE_URL = "https://aviation-data-visualizer-2-0.onrender.com/"
 const POLL_MS = 10000;
 const MAX_AIRCRAFT = 1000;
 
