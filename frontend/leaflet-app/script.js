@@ -1,7 +1,18 @@
 // const API_BASE_URL = "http://127.0.0.1:8000";
 const API_BASE_URL = "https://aviation-data-visualizer-2-0.onrender.com"
-const POLL_MS = 10000;
-const MAX_AIRCRAFT = 1000;
+const POLL_MS = 5000;
+const MAX_AIRCRAFT = 500;
+
+// animation tuning
+const ANIMATION_DURATION_MS = 4000;
+const MIN_ANIMATE_DISTANCE_METERS = 80;
+const MAX_ANIMATE_DISTANCE_METERS = 50000;
+const MAX_ANIMATED_MARKERS = 300;
+
+// NEW: controls for new aircraft movement
+const NEW_MARKER_TRAVEL_MS = 4000;
+const NEW_MARKER_MIN_DISTANCE_METERS = 300;
+const NEW_MARKER_MAX_DISTANCE_METERS = 3000;
 
 const WORLD_BOUNDS = [
     [-85, -180],
@@ -111,20 +122,115 @@ function createMarker(lat, lon, aircraft) {
 
     marker.bindPopup(buildPopupHtml(aircraft));
     marker.addTo(aircraftLayer);
+
+    marker._animationFrame = null;
+    marker._lastHeading = heading;
+
     return marker;
 }
 
-function updateMarker(marker, lat, lon, aircraft) {
+function stopMarkerAnimation(marker) {
+    if (marker._animationFrame) {
+        cancelAnimationFrame(marker._animationFrame);
+        marker._animationFrame = null;
+    }
+}
+
+function lerp(start, end, t) {
+    return start + (end - start) * t;
+}
+
+function distanceMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const toRad = (deg) => deg * Math.PI / 180;
+
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) ** 2;
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
+
+function animateMarkerTo(marker, targetLat, targetLon, durationMs) {
+    stopMarkerAnimation(marker);
+
+    const startLatLng = marker.getLatLng();
+    const startLat = startLatLng.lat;
+    const startLon = startLatLng.lng;
+    const startTime = performance.now();
+
+    function step(now) {
+        const elapsed = now - startTime;
+        const t = Math.min(elapsed / durationMs, 1);
+
+        const nextLat = lerp(startLat, targetLat, t);
+        const nextLon = lerp(startLon, targetLon, t);
+
+        marker.setLatLng([nextLat, nextLon]);
+
+        if (t < 1) {
+            marker._animationFrame = requestAnimationFrame(step);
+        } else {
+            marker._animationFrame = null;
+            marker.setLatLng([targetLat, targetLon]);
+        }
+    }
+
+    marker._animationFrame = requestAnimationFrame(step);
+}
+
+// NEW: compute fake "previous position" for new aircraft
+function computeSpawnOffset(lat, lon, aircraft) {
+    const speed = aircraft.ground_speed ?? 0; // knots
     const heading = aircraft.true_track ?? 0;
 
-    marker.setLatLng([lat, lon]);
+    if (!speed || !heading) return [lat, lon];
+
+    const speed_mps = speed * 0.514444;
+
+    let distance = speed_mps * (NEW_MARKER_TRAVEL_MS / 1000);
+    distance = Math.max(NEW_MARKER_MIN_DISTANCE_METERS, Math.min(distance, NEW_MARKER_MAX_DISTANCE_METERS));
+
+    const headingRad = (heading * Math.PI) / 180;
+
+    const dLat = -(distance * Math.cos(headingRad)) / 111320;
+    const dLon = -(distance * Math.sin(headingRad)) / (111320 * Math.cos(lat * Math.PI / 180));
+
+    return [lat + dLat, lon + dLon];
+}
+
+function updateMarker(marker, lat, lon, aircraft, shouldAnimate = true) {
+    const heading = aircraft.true_track ?? 0;
+    const currentLatLng = marker.getLatLng();
+    const moveDistance = distanceMeters(currentLatLng.lat, currentLatLng.lng, lat, lon);
+
     marker.setRotationAngle(heading - 45);
     marker.setPopupContent(buildPopupHtml(aircraft));
+    marker._lastHeading = heading;
+
+    const shouldSkipAnimation =
+        !shouldAnimate ||
+        moveDistance < MIN_ANIMATE_DISTANCE_METERS ||
+        moveDistance > MAX_ANIMATE_DISTANCE_METERS;
+
+    if (shouldSkipAnimation) {
+        stopMarkerAnimation(marker);
+        marker.setLatLng([lat, lon]);
+        return;
+    }
+
+    animateMarkerTo(marker, lat, lon, ANIMATION_DURATION_MS);
 }
 
 function removeStaleMarkers(seenIds) {
     for (const [aircraftId, marker] of aircraftMarkers.entries()) {
         if (!seenIds.has(aircraftId)) {
+            stopMarkerAnimation(marker);
             aircraftLayer.removeLayer(marker);
             aircraftMarkers.delete(aircraftId);
         }
@@ -133,6 +239,8 @@ function removeStaleMarkers(seenIds) {
 
 function syncAircraftMarkers(aircraftList) {
     const seenIds = new Set();
+
+    const animateThisCycle = aircraftList.length <= MAX_ANIMATED_MARKERS;
 
     aircraftList.forEach((aircraft) => {
         const lat = getAircraftLat(aircraft);
@@ -146,10 +254,15 @@ function syncAircraftMarkers(aircraftList) {
         const existingMarker = aircraftMarkers.get(aircraftId);
 
         if (existingMarker) {
-            updateMarker(existingMarker, lat, lon, aircraft);
+            updateMarker(existingMarker, lat, lon, aircraft, animateThisCycle);
         } else {
-            const marker = createMarker(lat, lon, aircraft);
+            const [spawnLat, spawnLon] = computeSpawnOffset(lat, lon, aircraft);
+
+            const marker = createMarker(spawnLat, spawnLon, aircraft);
             aircraftMarkers.set(aircraftId, marker);
+
+            // animate new marker into position
+            animateMarkerTo(marker, lat, lon, NEW_MARKER_TRAVEL_MS);
         }
     });
 
