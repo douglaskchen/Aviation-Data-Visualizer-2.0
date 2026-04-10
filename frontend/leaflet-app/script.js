@@ -2,14 +2,43 @@ const API_BASE_URL = "http://127.0.0.1:8000";
 const POLL_MS = 10000;
 const MAX_AIRCRAFT = 1000;
 
-const map = L.map("map").setView([43.6532, -79.3832], 8);
+const WORLD_BOUNDS = [
+    [-85, -180],
+    [85, 180]
+];
 
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+const map = L.map("map", {
+    center: [43.6532, -79.3832],
+    zoom: 8,
+    minZoom: 3,
+    maxBounds: WORLD_BOUNDS,
+    maxBoundsViscosity: 1.0,
+    worldCopyJump: false
+});
+
+const osmLayer = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    minZoom: 3,
     maxZoom: 19,
+    noWrap: true,
     attribution: "&copy; OpenStreetMap contributors"
 }).addTo(map);
 
+const aircraftLayer = L.layerGroup().addTo(map);
+
+const baseLayers = {
+    "OpenStreetMap": osmLayer
+};
+
+const overlayLayers = {
+    "Aircraft": aircraftLayer
+};
+
+const layerControl = L.control.layers(baseLayers, overlayLayers).addTo(map);
+
 const aircraftMarkers = new Map();
+let windLayer = null;
+let windOverlayRegistered = false;
+let fetchInProgress = false;
 
 const planeIcon = L.icon({
     iconUrl: "planeicon.png",
@@ -80,7 +109,7 @@ function createMarker(lat, lon, aircraft) {
     });
 
     marker.bindPopup(buildPopupHtml(aircraft));
-    marker.addTo(map);
+    marker.addTo(aircraftLayer);
     return marker;
 }
 
@@ -95,7 +124,7 @@ function updateMarker(marker, lat, lon, aircraft) {
 function removeStaleMarkers(seenIds) {
     for (const [aircraftId, marker] of aircraftMarkers.entries()) {
         if (!seenIds.has(aircraftId)) {
-            map.removeLayer(marker);
+            aircraftLayer.removeLayer(marker);
             aircraftMarkers.delete(aircraftId);
         }
     }
@@ -139,8 +168,6 @@ function buildAircraftUrl() {
     return url.toString();
 }
 
-let fetchInProgress = false;
-
 async function fetchAircraft() {
     if (fetchInProgress) return;
     fetchInProgress = true;
@@ -162,7 +189,56 @@ async function fetchAircraft() {
     }
 }
 
+async function fetchWind() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/wind`);
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const windRow = await response.json();
+        const velocityData = windRow.payload_json;
+
+        if (!Array.isArray(velocityData) || velocityData.length === 0) {
+            throw new Error("Wind payload is empty or invalid.");
+        }
+
+        if (windLayer) {
+            map.removeLayer(windLayer);
+            if (windOverlayRegistered) {
+                layerControl.removeLayer(windLayer);
+                windOverlayRegistered = false;
+            }
+        }
+
+        windLayer = L.velocityLayer({
+            data: velocityData,
+            displayValues: true,
+            displayOptions: {
+                velocityType: "Wind",
+                position: "bottomleft",
+                emptyString: "No wind data"
+            }
+        });
+
+        layerControl.addOverlay(windLayer, "Wind");
+        windOverlayRegistered = true;
+
+        windLayer.addTo(map);
+
+        console.log("Wind layer added.");
+    } catch (error) {
+        console.error("Failed to fetch wind:", error);
+    }
+}
+
 fetchAircraft();
+fetchWind();
+
 setInterval(fetchAircraft, POLL_MS);
+// uncomment later if decide to use wind poll instead of cron job
+// setInterval(fetchWind, POLL_MS);
+
 map.on("moveend", fetchAircraft);
 map.on("zoomend", fetchAircraft);
