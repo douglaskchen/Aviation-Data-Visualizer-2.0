@@ -1,0 +1,46 @@
+# stage 1: build grib2json
+FROM maven:3.9-eclipse-temurin-17 AS grib2json-builder
+
+RUN git clone https://github.com/cambecc/grib2json.git /opt/grib2json \
+    && cd /opt/grib2json \
+    && mvn package
+
+# stage 2: runtime
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    tar \
+    openjdk-21-jre \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+WORKDIR /app/backend
+ENV PYTHONPATH=/app/backend
+
+# copy built distribution tarball from builder
+COPY --from=grib2json-builder /opt/grib2json/target/grib2json-0.8.0-SNAPSHOT.tar.gz /tmp/grib2json.tar.gz
+
+# extract and install in the layout the wrapper expects
+RUN mkdir -p /tmp/grib2json-dist \
+    && tar -xzf /tmp/grib2json.tar.gz -C /tmp/grib2json-dist --strip-components=1 \
+    && cp /tmp/grib2json-dist/bin/grib2json /usr/local/bin/grib2json \
+    && chmod +x /usr/local/bin/grib2json \
+    && mkdir -p /usr/local/lib \
+    && cp /tmp/grib2json-dist/lib/* /usr/local/lib/
+
+COPY backend/ .
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+
+# for debugging grib2 file retrieval from national weather service
+# and also grib2json tool
+# CMD ["python", "-m", "worker.wind_fetcher"]
+
+# full ingestion pipeline
+CMD ["python", "-m", "worker.wind_updater"]

@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import health, aircraft
+from app.routes import health, aircraft, wind
 
 app = FastAPI(title="AvDataVis API")
 
@@ -17,3 +17,4 @@ app.add_middleware(
 
 app.include_router(health.router, prefix="/api")
 app.include_router(aircraft.router, prefix="/api")
+app.include_router(wind.router, prefix="/api")

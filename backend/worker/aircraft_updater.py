@@ -4,8 +4,8 @@ from datetime import datetime, timezone, timedelta
 
 from app.db import supabase
 from app.config import settings
-from worker.aircraft_data_fetcher import fetch_aircraft
-from worker.normalizers import normalize_aircraft
+from worker.aircraft_fetcher import fetch_aircraft
+from worker.aircraft_normalizer import normalize_aircraft
 
 
 STALE_SECONDS = getattr(settings, "aircraft_stale_seconds", 180)
