@@ -42,4 +42,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 # CMD ["python", "-m", "worker.wind_fetcher"]
 
 # full ingestion pipeline
-CMD ["python", "-m", "worker.wind_updater"]
+# CMD ["python", "-m", "worker.wind_updater"]
