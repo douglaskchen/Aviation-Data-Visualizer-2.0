@@ -18,8 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
-WORKDIR /app/backend
-ENV PYTHONPATH=/app/backend
+WORKDIR /app
+ENV PYTHONPATH=/app
 
 # copy built distribution tarball from builder
 COPY --from=grib2json-builder /opt/grib2json/target/grib2json-0.8.0-SNAPSHOT.tar.gz /tmp/grib2json.tar.gz
@@ -32,8 +32,7 @@ RUN mkdir -p /tmp/grib2json-dist \
     && mkdir -p /usr/local/lib \
     && cp /tmp/grib2json-dist/lib/* /usr/local/lib/
 
-COPY backend/ .
-COPY requirements.txt .
+COPY . .
 
 RUN pip install --no-cache-dir -r requirements.txt
 

@@ -9,6 +9,8 @@ app.add_middleware(
     allow_origins=[
         "http://127.0.0.1:5500",
         "http://localhost:5500",
+        "https://aviation-data-visualizer-2-0.onrender.com",
+        "https://douglaskchen.github.io/Aviation-Data-Visualizer-2.0/"
     ],
     allow_credentials=True,
     allow_methods=["*"],
